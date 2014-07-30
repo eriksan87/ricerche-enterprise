@@ -26,38 +26,49 @@ public class Main {
 
 	
     public Main() throws SolrServerException, IOException, ParserConfigurationException, SAXException  {
-    	  SolrServer server = new HttpSolrServer("http://192.168.1.4:8983/solr/corpus");
-    	  ModifiableSolrParams params = new ModifiableSolrParams();
+    	
+    	    /*
+    	     * Setting dei parametri di connessione al core "corpus" per una query con
+    	     * il clustering attivato.
+    		*/
+    		SolrServer server = new HttpSolrServer("http://192.168.1.4:8983/solr/corpus");
+    	    ModifiableSolrParams params = new ModifiableSolrParams();
     	    params.set("qt", "/clustering");
     	    params.set("q", "*:*");
-//    	    params.set("carrot.title", "myTitle");
-//    	    params.set("clustering", "true");
 
-    	    QueryResponse response = server.query(params);
-    	   
-    	   
-    	    ArrayList cluster= (ArrayList) response.getResponse().get("clusters");   	    
-    	   
-    	    ArrayList<Cluster> clusters =new ArrayList<Cluster>();
-    	    
+
+    	    /*
+    	     * Effettuiamo la query sul server e recuperiamo tutti i cluster generati in output.
+    		*/
+    	    QueryResponse response = server.query(params);  
+    	    ArrayList cluster = (ArrayList) response.getResponse().get("clusters"); 
+    	    // inizzializziamo l'arrayList di cluster
+    	    ArrayList<Cluster> clusters = new ArrayList<Cluster>();
+    	    // prepariamo una stringa per costruire la query da eseguire sul thesaurus
     	    String queryThes="";
-    	    
+    	    // ciclo sui cluster
     	    for (int j=0; j<cluster.size();j++)
     	    {
     	    	SimpleOrderedMap<Object> map = (SimpleOrderedMap<Object>) cluster.get(j);
-    	    	String l=map.get("labels").toString();
-    	    	l=l.substring(1,l.length()-1);
-    	    	Stemmer a=new Stemmer(l);
-    	    	String stemLabel=a.getIndexS();
-    	    	String docs=map.get("docs").toString().substring(1,map.get("docs").toString().length()-1);    	    	
-    	    	//lista di documenti
-    	    	String[] s=docs.split(",");
-    	    	ArrayList<String> docList= new ArrayList<String>(Arrays.asList(s));
-    	    	
-    	    	Cluster aux=new Cluster(l, stemLabel,docList);     	    	
+    	    	// recupero la label del cluster
+    	    	String l = map.get("labels").toString();
+    	    	// elimino il primo e l'ultimo carattere della label
+    	    	l = l.substring(1,l.length()-1);
+    	    	// effettuo lo stemming della label 
+    	    	Stemmer stem = new Stemmer(l);
+    	    	String stemLabel = stem.getIndexS();
+    	    	// recupero gli id dei documenti presenti nel cluster
+    	    	String docs = map.get("docs").toString().substring(1,map.get("docs").toString().length()-1);    	    	
+    	    	// creo un arrayList con gli id dei documenti
+    	    	String[] s = docs.split(",");
+    	    	ArrayList<String> docList = new ArrayList<String>(Arrays.asList(s));
+    	    	// creo un oggetto della classe Cluster settando i parametri "label" "stemLabel" "docs"
+    	    	Cluster aux = new Cluster(l, stemLabel,docList);     	    	
+    	    	// aggiungo alla lista il cluster appena creato in maniera ordinata
     	    	clusters.add(getSortedIndex(stemLabel,clusters), aux);
-    	    //costruisco la stringa per la query
     	    	
+    	    	// Costruzione della stringa per la query sul thesaurus. Si elimina il cluster "other topics"
+    	    	// da tale lista poichè non deve essere ricercato nel thesaurus.
     	    	if(!stemLabel.equals("other topics"))
     	    	{	
     	    			if(j==0)
@@ -66,7 +77,14 @@ public class Main {
 		    	    		queryThes+=" OR descrittore:"+stemLabel;
     	    	}
     	    }
-    	        	    
+    	    
+    	    
+    	    
+    	    /*
+    	     * Setting dei parametri di connessione al core "thesaurus" per una query con
+    	     * il componente di Facet attivato sul field "hierarchy". Richiediamo inoltre che
+    	     * i risultati siano ordinati per "descrittore".
+    		*/
     	    SolrServer server2 = new HttpSolrServer("http://192.168.1.4:8983/solr/thesaurus");
     	    SolrQuery query = new SolrQuery();
     	    
@@ -74,24 +92,49 @@ public class Main {
     	    query.setFacet(true);
     	    query.setFacetMinCount(1);
     	    query.addFacetField("hierarchy");
-    	    query.addSort("descrittore",ORDER.asc);
+    	    query.addSort("descrittore", ORDER.asc);
     	    
+    	    /*
+    	     * Effettuiamo la query sul server e recuperiamo tutti i documenti ottenuti in output.
+    		*/
     	    QueryResponse response2 = server2.query(query);
-    	    
-    	    SolrDocumentList results=response2.getResults();
-    	    System.out.println(query.toString());
-    	    
-    	    ArrayList<Desc> descrittori=new ArrayList<Desc>();
-    	    
-    	    for(int i=0;i<results.size();i++)
+    	    SolrDocumentList results = response2.getResults();
+    	    // inizializziamo l'arrayList di descrittori
+    	    ArrayList<Desc> descrittori = new ArrayList<Desc>();
+    	    // ciclo sui documenti
+    	    for(int i=0; i<results.size(); i++)
     	    {
-    	    	Desc aux=new Desc();
+    	    	// per ogni documento creo un oggetto della classe "Desc"
+    	    	Desc aux = new Desc();
+    	    	// recupero il descrittore e setto tale valore nell'oggetto creato
     	    	aux.setName(results.get(i).getFieldValue("descrittore").toString());
+    	    	// recupero le gerarchie e setto tale valore nell'oggetto creato
     	    	aux.setGerarchia((ArrayList)(results.get(i).getFieldValues("hierarchy")));
+    	    	// aggiunto l'oggetto alla lista dei descrittori
     	    	descrittori.add(aux);
     	    } 
     	    
-    	    ArrayList<Desc> out=merge (clusters,descrittori);
+    	    /*
+    	     * Richiamo della funzione "merge" che effettuerà il confronto tra la lista
+    	     * dei cluster e la lista dei descrittori generando in output un'unica lista
+    	     * contenente tutti i termini ognuno dei quali avrà associato i propri documenti.
+    		*/
+    	    ArrayList<Desc> out = merge (clusters,descrittori);
+    	    
+    	    
+    	    
+    	    /*
+    	     * Recupero dei facet restituiti dalla query
+    	     */
+    	    int size = response2.getFacetField("hierarchy").getValueCount();
+    	    
+    	    for(int i=0;i<size;i++)
+    	    {
+    	    	response2.getFacetField("hierarchy").getValues().get(i).getName();
+    	    } 
+    	    
+    	    
+    	    
     	    
     	    for(int i=0; i<out.size();i++)
     	    {
@@ -114,7 +157,7 @@ public class Main {
         }       
         // name should be inserted at end
         return list.size();
-    }
+   }
   
   private static ArrayList<Desc> merge (ArrayList<Cluster> clusters,ArrayList<Desc> descrittori) {
   
@@ -122,32 +165,50 @@ public class Main {
 	  
 	  int indexC=0;
 	  int indexD=0;
-	  
-	  while(indexD<descrittori.size())
+	  // finchè non scandisco tutti i descrittori eseguo:
+	  while(indexD < descrittori.size())
 	  {
+		  /* 
+		   * se il confronto va a buon fine, cioè se la label del descrittore 
+		   * è uguale a quella del cluster.
+		   */
 		  if(clusters.get(indexC).getStemLabel().equals(descrittori.get(indexD).getName()) )
 		  {
+			  // prendo i documenti associati al cluster e li setto al descrittore.
 			  descrittori.get(indexD).setDocs(clusters.get(indexC).getDocs());
+			  // recupero inoltre la label non stemmata del cluster
 			  descrittori.get(indexD).setName(clusters.get(indexC).getlabel());
+			  // aggiungo all'output il descrittore
 			  output.add(descrittori.get(indexD));
+			  // avanzo entrambi gli indici delle due liste
 			  indexC++;
 			  indexD++;
 		  }
-		  else{
+		  /* 
+		   * se il confronto non va a buon fine, cioè se la label del descrittore 
+		   * è diversa da quella del cluster, allora tale cluster non è stato trovato
+		   * nel thesaurus e quindi posso aggiungerlo direttamente all'output
+		   */
+		  else
+		  {
 			  
-			  Desc aux= new Desc();
+			  // creo un nuovo oggetto descrittore e gli setto i documenti, la label e la gerarchia.
+			  Desc aux = new Desc();
 			  aux.setDocs(clusters.get(indexC).getDocs());
 			  aux.setName(clusters.get(indexC).getLabel());
 			  aux.setGerarchia(new ArrayList<String>(Arrays.asList(clusters.get(indexC).getLabel())));
+			  // aggiungo l'oggetto all'output
 			  output.add(aux);
+			  // incremento l'indice della lista di cluster
 			  indexC++;
 		  }
 		  
 	  }
 	  
-	  while(indexC<clusters.size())
+	  // terminata la scansione dei descrittori rimangono dei cluster da inserire nell'output
+	  while(indexC < clusters.size())
 	  {
-		  Desc aux= new Desc();
+		  Desc aux = new Desc();
 		  aux.setDocs(clusters.get(indexC).getDocs());
 		  aux.setName(clusters.get(indexC).getLabel());
 		  aux.setGerarchia(new ArrayList<String>(Arrays.asList(clusters.get(indexC).getLabel())));
